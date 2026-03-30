@@ -448,7 +448,9 @@ function findLastIndex<T>(
 	predicate: (value: T) => boolean,
 ): number {
 	for (let index = values.length - 1; index >= 0; index -= 1) {
-		if (predicate(values[index]!)) {
+		const value = values[index];
+
+		if (value !== undefined && predicate(value)) {
 			return index;
 		}
 	}

@@ -2,7 +2,7 @@
 	"compilerOptions": {
 		"allowImportingTsExtensions": true,
 		"allowJs": true,
-		"baseUrl": ".",
+
 		"ignoreDeprecations": "5.0",
 		"jsx": "react-jsx",
 		// Environment setup & latest features
