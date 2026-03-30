@@ -1,0 +1,5 @@
+blank_issues_enabled: false
+contact_links:
+  - name: Issue guide
+    url: https://github.com/patgpt/copilot-provider/blob/main/ISSUES.md
+    about: Read the reporting guide before opening a new issue.

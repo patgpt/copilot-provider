@@ -1,0 +1,82 @@
+name: Bug report
+description: Report a reproducible problem in the provider or example app.
+title: "[Bug]: "
+labels:
+  - bug
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Thanks for taking the time to report a bug.
+
+        Please include a minimal reproduction and scrub all secrets before submitting.
+  - type: dropdown
+    id: area
+    attributes:
+      label: Affected area
+      options:
+        - Library package
+        - Example app
+        - Build / publish workflow
+        - Documentation
+    validations:
+      required: true
+  - type: input
+    id: version
+    attributes:
+      label: Version or commit SHA
+      placeholder: 0.0.1 or abc1234
+    validations:
+      required: true
+  - type: input
+    id: environment
+    attributes:
+      label: Environment
+      placeholder: macOS 15 / Bun 1.3.x / arm64
+    validations:
+      required: true
+  - type: input
+    id: model
+    attributes:
+      label: Model used (if applicable)
+      placeholder: gpt-5
+  - type: dropdown
+    id: auth
+    attributes:
+      label: Auth method
+      options:
+        - COPILOT_GITHUB_TOKEN
+        - GH_TOKEN
+        - GITHUB_TOKEN
+        - Logged-in Copilot / gh auth
+        - Other / not applicable
+    validations:
+      required: true
+  - type: textarea
+    id: reproduction
+    attributes:
+      label: Reproduction
+      description: Provide the smallest reproducible example you can.
+      placeholder: |
+        1. Run ...
+        2. Send prompt ...
+        3. Observe ...
+    validations:
+      required: true
+  - type: textarea
+    id: expected
+    attributes:
+      label: Expected behavior
+    validations:
+      required: true
+  - type: textarea
+    id: actual
+    attributes:
+      label: Actual behavior
+    validations:
+      required: true
+  - type: textarea
+    id: logs
+    attributes:
+      label: Logs, warnings, or stack traces
+      render: shell

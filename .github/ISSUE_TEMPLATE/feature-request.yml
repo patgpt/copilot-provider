@@ -1,0 +1,46 @@
+name: Feature request
+description: Suggest an improvement for the provider, example app, or release workflow.
+title: "[Feature]: "
+labels:
+  - enhancement
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Thanks for the suggestion.
+
+        Please focus on the user problem first, then the proposed API or behavior.
+  - type: dropdown
+    id: area
+    attributes:
+      label: Area
+      options:
+        - Library package
+        - Example app
+        - Build / publish workflow
+        - Documentation
+    validations:
+      required: true
+  - type: textarea
+    id: problem
+    attributes:
+      label: What problem are you trying to solve?
+      placeholder: I'm unable to ...
+    validations:
+      required: true
+  - type: textarea
+    id: proposal
+    attributes:
+      label: Proposed solution
+      placeholder: It would help if the package ...
+    validations:
+      required: true
+  - type: textarea
+    id: alternatives
+    attributes:
+      label: Alternatives considered
+  - type: textarea
+    id: context
+    attributes:
+      label: Additional context
+      description: API sketches, usage examples, screenshots, or links are welcome.

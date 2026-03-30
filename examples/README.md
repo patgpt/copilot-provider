@@ -1,21 +1,14 @@
-# bun-react-tailwind-shadcn-template
+# examples
 
-To install dependencies:
+The actively maintained demo app currently lives in `../example/`.
+
+Run it from the repository root with:
 
 ```bash
 bun install
+cd example && bun install
+cd ..
+bun run example:dev
 ```
 
-To start a development server:
-
-```bash
-bun dev
-```
-
-To run for production:
-
-```bash
-bun start
-```
-
-This project was created using `bun init` in bun v1.3.5. [Bun](https://bun.com) is a fast all-in-one JavaScript runtime.
+This small bridge keeps the conventional `examples/` breadcrumb without forcing a noisy folder rename right now.

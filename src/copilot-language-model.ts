@@ -1,653 +1,674 @@
 import {
-  APICallError,
-  type LanguageModelV3,
-  type LanguageModelV3CallOptions,
-  type LanguageModelV3Content,
-  type LanguageModelV3FinishReason,
-  type LanguageModelV3GenerateResult,
-  type LanguageModelV3ResponseMetadata,
-  type LanguageModelV3StreamPart,
-  type LanguageModelV3StreamResult,
-  type LanguageModelV3Usage,
-} from '@ai-sdk/provider';
-import { isAbortError, removeUndefinedEntries } from '@ai-sdk/provider-utils';
+	APICallError,
+	type LanguageModelV3,
+	type LanguageModelV3CallOptions,
+	type LanguageModelV3Content,
+	type LanguageModelV3FinishReason,
+	type LanguageModelV3GenerateResult,
+	type LanguageModelV3ResponseMetadata,
+	type LanguageModelV3StreamPart,
+	type LanguageModelV3StreamResult,
+	type LanguageModelV3Usage,
+} from "@ai-sdk/provider";
+import { isAbortError, removeUndefinedEntries } from "@ai-sdk/provider-utils";
 import {
-  CopilotClient,
-  approveAll,
-  type AssistantMessageEvent,
-  type CopilotSession,
-  type SessionConfig,
-  type SessionEvent,
-} from '@github/copilot-sdk';
+	type AssistantMessageEvent,
+	approveAll,
+	type CopilotClient,
+	type CopilotSession,
+	type SessionConfig,
+	type SessionEvent,
+} from "@github/copilot-sdk";
 
 import type {
-  CopilotLanguageModelSettings,
-  CopilotProviderSettings,
-} from './copilot-types';
-import { prepareCopilotPrompt } from './prompt-conversion';
+	CopilotLanguageModelSettings,
+	CopilotProviderSettings,
+} from "./copilot-types";
+import { prepareCopilotPrompt } from "./prompt-conversion";
 
 type CopilotLanguageModelConfig = {
-  createClient: (overrides?: Partial<CopilotProviderSettings>) => CopilotClient;
-  defaultSettings: CopilotLanguageModelSettings;
-  generateId: () => string;
-  provider: string;
+	createClient: (overrides?: Partial<CopilotProviderSettings>) => CopilotClient;
+	defaultSettings: CopilotLanguageModelSettings;
+	generateId: () => string;
+	provider: string;
 };
 
 export class CopilotLanguageModel implements LanguageModelV3 {
-  readonly specificationVersion = 'v3' as const;
-  readonly supportedUrls = {};
+	readonly specificationVersion = "v3" as const;
+	readonly supportedUrls = {};
 
-  constructor(
-    readonly modelId: string,
-    private readonly settings: CopilotLanguageModelSettings,
-    private readonly config: CopilotLanguageModelConfig,
-  ) {}
+	constructor(
+		readonly modelId: string,
+		private readonly settings: CopilotLanguageModelSettings,
+		private readonly config: CopilotLanguageModelConfig,
+	) {}
 
-  get provider(): string {
-    return this.config.provider;
-  }
+	get provider(): string {
+		return this.config.provider;
+	}
 
-  async doGenerate(
-    options: LanguageModelV3CallOptions,
-  ): Promise<LanguageModelV3GenerateResult> {
-    const preparedPrompt = prepareCopilotPrompt(options);
-    const requestBody = this.createRequestBody(preparedPrompt, false);
+	async doGenerate(
+		options: LanguageModelV3CallOptions,
+	): Promise<LanguageModelV3GenerateResult> {
+		const preparedPrompt = prepareCopilotPrompt(options);
+		const requestBody = this.createRequestBody(preparedPrompt, false);
 
-    let lastMessage: AssistantMessageEvent | undefined;
-    let lastUsageEvent: Extract<SessionEvent, { type: 'assistant.usage' }> | undefined;
-    let lastErrorEvent: Extract<SessionEvent, { type: 'session.error' }> | undefined;
+		let lastMessage: AssistantMessageEvent | undefined;
+		let lastUsageEvent:
+			| Extract<SessionEvent, { type: "assistant.usage" }>
+			| undefined;
+		let lastErrorEvent:
+			| Extract<SessionEvent, { type: "session.error" }>
+			| undefined;
 
-    const client = this.config.createClient();
-    let session: CopilotSession | undefined;
-    let removeAbortHandler = () => {};
+		const client = this.config.createClient();
+		let session: CopilotSession | undefined;
+		let removeAbortHandler = () => {};
 
-    try {
-      throwIfAborted(options.abortSignal);
+		try {
+			throwIfAborted(options.abortSignal);
 
-      await client.start();
-      session = await client.createSession(
-        this.createSessionConfig(preparedPrompt.systemMessage, false, event => {
-          if (event.type === 'assistant.message' && event.data.parentToolCallId == null) {
-            lastMessage = event;
-          }
+			await client.start();
+			session = await client.createSession(
+				this.createSessionConfig(
+					preparedPrompt.systemMessage,
+					false,
+					(event) => {
+						if (
+							event.type === "assistant.message" &&
+							event.data.parentToolCallId == null
+						) {
+							lastMessage = event;
+						}
 
-          if (
-            event.type === 'assistant.usage' &&
-            event.data.parentToolCallId == null &&
-            event.data.initiator == null
-          ) {
-            lastUsageEvent = event;
-          }
+						if (
+							event.type === "assistant.usage" &&
+							event.data.parentToolCallId == null &&
+							event.data.initiator == null
+						) {
+							lastUsageEvent = event;
+						}
 
-          if (event.type === 'session.error') {
-            lastErrorEvent = event;
-          }
-        }),
-      );
+						if (event.type === "session.error") {
+							lastErrorEvent = event;
+						}
+					},
+				),
+			);
 
-      removeAbortHandler = bindAbortSignal(options.abortSignal, session);
+			removeAbortHandler = bindAbortSignal(options.abortSignal, session);
 
-      lastMessage = await session.sendAndWait(
-        {
-          prompt: preparedPrompt.prompt,
-          attachments: preparedPrompt.attachments,
-          mode: 'immediate',
-        },
-        undefined,
-      );
+			lastMessage = await session.sendAndWait(
+				{
+					attachments: preparedPrompt.attachments,
+					mode: "immediate",
+					prompt: preparedPrompt.prompt,
+				},
+				undefined,
+			);
 
-      if (lastMessage == null) {
-        throw createCopilotError({
-          errorEvent: lastErrorEvent,
-          requestBody,
-          message: 'Copilot completed without returning an assistant message.',
-        });
-      }
+			if (lastMessage == null) {
+				throw createCopilotError({
+					errorEvent: lastErrorEvent,
+					message: "Copilot completed without returning an assistant message.",
+					requestBody,
+				});
+			}
 
-      return {
-        content: toGeneratedContent(lastMessage),
-        finishReason: toFinishReason(lastMessage, lastErrorEvent),
-        usage: toUsage(lastUsageEvent, lastMessage),
-        request: { body: requestBody },
-        response: {
-          ...toResponseMetadata(lastMessage, lastUsageEvent),
-          body: removeUndefinedEntries({
-            message: lastMessage,
-            usage: lastUsageEvent,
-            error: lastErrorEvent,
-          }),
-        },
-        warnings: preparedPrompt.warnings,
-      };
-    } catch (error) {
-      if (isAbortError(error)) {
-        throw error;
-      }
+			return {
+				content: toGeneratedContent(lastMessage),
+				finishReason: toFinishReason(lastMessage, lastErrorEvent),
+				request: { body: requestBody },
+				response: {
+					...toResponseMetadata(lastMessage, lastUsageEvent),
+					body: removeUndefinedEntries({
+						error: lastErrorEvent,
+						message: lastMessage,
+						usage: lastUsageEvent,
+					}),
+				},
+				usage: toUsage(lastUsageEvent, lastMessage),
+				warnings: preparedPrompt.warnings,
+			};
+		} catch (error) {
+			if (isAbortError(error)) {
+				throw error;
+			}
 
-      if (APICallError.isInstance(error)) {
-        throw error;
-      }
+			if (APICallError.isInstance(error)) {
+				throw error;
+			}
 
-      throw createCopilotError({
-        errorEvent: lastErrorEvent,
-        requestBody,
-        cause: error,
-      });
-    } finally {
-      removeAbortHandler();
-      await cleanupSession(client, session);
-    }
-  }
+			throw createCopilotError({
+				cause: error,
+				errorEvent: lastErrorEvent,
+				requestBody,
+			});
+		} finally {
+			removeAbortHandler();
+			await cleanupSession(client, session);
+		}
+	}
 
-  async doStream(
-    options: LanguageModelV3CallOptions,
-  ): Promise<LanguageModelV3StreamResult> {
-    const preparedPrompt = prepareCopilotPrompt(options);
-    const requestBody = this.createRequestBody(preparedPrompt, true);
+	async doStream(
+		options: LanguageModelV3CallOptions,
+	): Promise<LanguageModelV3StreamResult> {
+		const preparedPrompt = prepareCopilotPrompt(options);
+		const requestBody = this.createRequestBody(preparedPrompt, true);
 
-    let client: CopilotClient | undefined;
-    let session: CopilotSession | undefined;
-    let removeAbortHandler = () => {};
-    let cleanedUp = false;
-    let finalized = false;
+		let client: CopilotClient | undefined;
+		let session: CopilotSession | undefined;
+		let removeAbortHandler = () => {};
+		let cleanedUp = false;
+		let finalized = false;
 
-    let lastMessage: AssistantMessageEvent | undefined;
-    let lastUsageEvent: Extract<SessionEvent, { type: 'assistant.usage' }> | undefined;
-    let lastErrorEvent: Extract<SessionEvent, { type: 'session.error' }> | undefined;
-    let textPartId: string | undefined;
-    let reasoningPartId: string | undefined;
-    let textStarted = false;
+		let lastMessage: AssistantMessageEvent | undefined;
+		let lastUsageEvent:
+			| Extract<SessionEvent, { type: "assistant.usage" }>
+			| undefined;
+		let lastErrorEvent:
+			| Extract<SessionEvent, { type: "session.error" }>
+			| undefined;
+		let textPartId: string | undefined;
+		let reasoningPartId: string | undefined;
+		let textStarted = false;
 
-    const cleanup = async () => {
-      if (cleanedUp) {
-        return;
-      }
+		const cleanup = async () => {
+			if (cleanedUp) {
+				return;
+			}
 
-      cleanedUp = true;
-      removeAbortHandler();
+			cleanedUp = true;
+			removeAbortHandler();
 
-      if (client != null) {
-        await cleanupSession(client, session);
-      }
-    };
+			if (client != null) {
+				await cleanupSession(client, session);
+			}
+		};
 
-    const stream = new ReadableStream<LanguageModelV3StreamPart>({
-      start: async controller => {
-        const finalize = async () => {
-          if (finalized) {
-            return;
-          }
+		const stream = new ReadableStream<LanguageModelV3StreamPart>({
+			cancel: async () => {
+				try {
+					await session?.abort();
+				} finally {
+					await cleanup();
+				}
+			},
+			start: async (controller) => {
+				const finalize = async () => {
+					if (finalized) {
+						return;
+					}
 
-          finalized = true;
+					finalized = true;
 
-          if (textPartId != null) {
-            controller.enqueue({
-              type: 'text-end',
-              id: textPartId,
-            });
-          }
+					if (textPartId != null) {
+						controller.enqueue({
+							id: textPartId,
+							type: "text-end",
+						});
+					}
 
-          if (
-            lastMessage?.data.reasoningText != null &&
-            lastMessage.data.reasoningText.length > 0
-          ) {
-            reasoningPartId ??= this.config.generateId();
-            controller.enqueue({
-              type: 'reasoning-start',
-              id: reasoningPartId,
-            });
-            controller.enqueue({
-              type: 'reasoning-delta',
-              id: reasoningPartId,
-              delta: lastMessage.data.reasoningText,
-            });
-            controller.enqueue({
-              type: 'reasoning-end',
-              id: reasoningPartId,
-            });
-          }
+					if (
+						lastMessage?.data.reasoningText != null &&
+						lastMessage.data.reasoningText.length > 0
+					) {
+						reasoningPartId ??= this.config.generateId();
+						controller.enqueue({
+							id: reasoningPartId,
+							type: "reasoning-start",
+						});
+						controller.enqueue({
+							delta: lastMessage.data.reasoningText,
+							id: reasoningPartId,
+							type: "reasoning-delta",
+						});
+						controller.enqueue({
+							id: reasoningPartId,
+							type: "reasoning-end",
+						});
+					}
 
-          controller.enqueue({
-            type: 'response-metadata',
-            ...toResponseMetadata(lastMessage, lastUsageEvent),
-          });
-          controller.enqueue({
-            type: 'finish',
-            usage: toUsage(lastUsageEvent, lastMessage),
-            finishReason: toFinishReason(lastMessage, lastErrorEvent),
-          });
+					controller.enqueue({
+						type: "response-metadata",
+						...toResponseMetadata(lastMessage, lastUsageEvent),
+					});
+					controller.enqueue({
+						finishReason: toFinishReason(lastMessage, lastErrorEvent),
+						type: "finish",
+						usage: toUsage(lastUsageEvent, lastMessage),
+					});
 
-          controller.close();
-          await cleanup();
-        };
+					controller.close();
+					await cleanup();
+				};
 
-        const handleEvent = (event: SessionEvent) => {
-          if (options.includeRawChunks) {
-            controller.enqueue({
-              type: 'raw',
-              rawValue: event,
-            });
-          }
+				const handleEvent = (event: SessionEvent) => {
+					if (options.includeRawChunks) {
+						controller.enqueue({
+							rawValue: event,
+							type: "raw",
+						});
+					}
 
-          switch (event.type) {
-            case 'assistant.message_delta': {
-              if (event.data.parentToolCallId != null) {
-                return;
-              }
+					switch (event.type) {
+						case "assistant.message_delta": {
+							if (event.data.parentToolCallId != null) {
+								return;
+							}
 
-              textPartId ??= this.config.generateId();
+							textPartId ??= this.config.generateId();
 
-              if (textPartId != null && event.data.deltaContent.length > 0) {
-                if (!textStarted) {
-                  controller.enqueue({
-                    type: 'text-start',
-                    id: textPartId,
-                  });
-                  textStarted = true;
-                }
+							if (textPartId != null && event.data.deltaContent.length > 0) {
+								if (!textStarted) {
+									controller.enqueue({
+										id: textPartId,
+										type: "text-start",
+									});
+									textStarted = true;
+								}
 
-                controller.enqueue({
-                  type: 'text-delta',
-                  id: textPartId,
-                  delta: event.data.deltaContent,
-                });
-              }
+								controller.enqueue({
+									delta: event.data.deltaContent,
+									id: textPartId,
+									type: "text-delta",
+								});
+							}
 
-              return;
-            }
-            case 'assistant.message': {
-              if (event.data.parentToolCallId != null) {
-                return;
-              }
+							return;
+						}
+						case "assistant.message": {
+							if (event.data.parentToolCallId != null) {
+								return;
+							}
 
-              lastMessage = event;
+							lastMessage = event;
 
-              if (
-                textPartId == null &&
-                event.data.content != null &&
-                event.data.content.length > 0
-              ) {
-                textPartId = this.config.generateId();
-                controller.enqueue({
-                  type: 'text-start',
-                  id: textPartId,
-                });
-                textStarted = true;
-                controller.enqueue({
-                  type: 'text-delta',
-                  id: textPartId,
-                  delta: event.data.content,
-                });
-              }
+							if (
+								textPartId == null &&
+								event.data.content != null &&
+								event.data.content.length > 0
+							) {
+								textPartId = this.config.generateId();
+								controller.enqueue({
+									id: textPartId,
+									type: "text-start",
+								});
+								textStarted = true;
+								controller.enqueue({
+									delta: event.data.content,
+									id: textPartId,
+									type: "text-delta",
+								});
+							}
 
-              return;
-            }
-            case 'assistant.usage': {
-              if (
-                event.data.parentToolCallId == null &&
-                event.data.initiator == null
-              ) {
-                lastUsageEvent = event;
-              }
-              return;
-            }
-            case 'session.error': {
-              lastErrorEvent = event;
-              controller.enqueue({
-                type: 'error',
-                error: createCopilotError({
-                  errorEvent: event,
-                  requestBody,
-                }),
-              });
-              return;
-            }
-            case 'session.idle': {
-              void finalize();
-              return;
-            }
-          }
-        };
+							return;
+						}
+						case "assistant.usage": {
+							if (
+								event.data.parentToolCallId == null &&
+								event.data.initiator == null
+							) {
+								lastUsageEvent = event;
+							}
+							return;
+						}
+						case "session.error": {
+							lastErrorEvent = event;
+							controller.enqueue({
+								error: createCopilotError({
+									errorEvent: event,
+									requestBody,
+								}),
+								type: "error",
+							});
+							return;
+						}
+						case "session.idle": {
+							void finalize();
+							return;
+						}
+					}
+				};
 
-        try {
-          throwIfAborted(options.abortSignal);
+				try {
+					throwIfAborted(options.abortSignal);
 
-          controller.enqueue({
-            type: 'stream-start',
-            warnings: preparedPrompt.warnings,
-          });
+					controller.enqueue({
+						type: "stream-start",
+						warnings: preparedPrompt.warnings,
+					});
 
-          client = this.config.createClient();
-          await client.start();
-          session = await client.createSession(
-            this.createSessionConfig(
-              preparedPrompt.systemMessage,
-              true,
-              handleEvent,
-            ),
-          );
+					client = this.config.createClient();
+					await client.start();
+					session = await client.createSession(
+						this.createSessionConfig(
+							preparedPrompt.systemMessage,
+							true,
+							handleEvent,
+						),
+					);
 
-          removeAbortHandler = bindAbortSignal(options.abortSignal, session);
+					removeAbortHandler = bindAbortSignal(options.abortSignal, session);
 
-          await session.send({
-            prompt: preparedPrompt.prompt,
-            attachments: preparedPrompt.attachments,
-            mode: 'immediate',
-          });
-        } catch (error) {
-          controller.enqueue({
-            type: 'error',
-            error: APICallError.isInstance(error)
-              ? error
-              : createCopilotError({
-                  errorEvent: lastErrorEvent,
-                  requestBody,
-                  cause: error,
-                }),
-          });
-          controller.close();
-          await cleanup();
-        }
-      },
-      cancel: async () => {
-        try {
-          await session?.abort();
-        } finally {
-          await cleanup();
-        }
-      },
-    });
+					await session.send({
+						attachments: preparedPrompt.attachments,
+						mode: "immediate",
+						prompt: preparedPrompt.prompt,
+					});
+				} catch (error) {
+					controller.enqueue({
+						error: APICallError.isInstance(error)
+							? error
+							: createCopilotError({
+									cause: error,
+									errorEvent: lastErrorEvent,
+									requestBody,
+								}),
+						type: "error",
+					});
+					controller.close();
+					await cleanup();
+				}
+			},
+		});
 
-    return {
-      stream,
-      request: {
-        body: requestBody,
-      },
-    };
-  }
+		return {
+			request: {
+				body: requestBody,
+			},
+			stream,
+		};
+	}
 
-  private createRequestBody(
-    preparedPrompt: ReturnType<typeof prepareCopilotPrompt>,
-    streaming: boolean,
-  ) {
-    const systemMessage = joinNonEmpty([
-      this.config.defaultSettings.systemMessage,
-      this.settings.systemMessage,
-      preparedPrompt.systemMessage,
-    ]);
+	private createRequestBody(
+		preparedPrompt: ReturnType<typeof prepareCopilotPrompt>,
+		streaming: boolean,
+	) {
+		const systemMessage = joinNonEmpty([
+			this.config.defaultSettings.systemMessage,
+			this.settings.systemMessage,
+			preparedPrompt.systemMessage,
+		]);
 
-    return removeUndefinedEntries({
-      model: this.modelId,
-      prompt: preparedPrompt.prompt,
-      attachments: preparedPrompt.attachments,
-      systemMessage,
-      reasoningEffort:
-        this.settings.reasoningEffort ?? this.config.defaultSettings.reasoningEffort,
-      provider: this.settings.provider ?? this.config.defaultSettings.provider,
-      streaming,
-      workingDirectory:
-        this.settings.workingDirectory ??
-        this.config.defaultSettings.workingDirectory,
-      clientName: this.settings.clientName ?? this.config.defaultSettings.clientName,
-    });
-  }
+		return removeUndefinedEntries({
+			attachments: preparedPrompt.attachments,
+			clientName:
+				this.settings.clientName ?? this.config.defaultSettings.clientName,
+			model: this.modelId,
+			prompt: preparedPrompt.prompt,
+			provider: this.settings.provider ?? this.config.defaultSettings.provider,
+			reasoningEffort:
+				this.settings.reasoningEffort ??
+				this.config.defaultSettings.reasoningEffort,
+			streaming,
+			systemMessage,
+			workingDirectory:
+				this.settings.workingDirectory ??
+				this.config.defaultSettings.workingDirectory,
+		});
+	}
 
-  private createSessionConfig(
-    promptSystemMessage: string | undefined,
-    streaming: boolean,
-    onEvent: (event: SessionEvent) => void,
-  ): SessionConfig {
-    const sessionConfig: SessionConfig = {
-      model: this.modelId,
-      streaming,
-      availableTools: [],
-      infiniteSessions: { enabled: false },
-      onPermissionRequest: approveAll,
-      onEvent,
-    };
+	private createSessionConfig(
+		promptSystemMessage: string | undefined,
+		streaming: boolean,
+		onEvent: (event: SessionEvent) => void,
+	): SessionConfig {
+		const sessionConfig: SessionConfig = {
+			availableTools: [],
+			infiniteSessions: { enabled: false },
+			model: this.modelId,
+			onEvent,
+			onPermissionRequest: approveAll,
+			streaming,
+		};
 
-    const clientName =
-      this.settings.clientName ?? this.config.defaultSettings.clientName;
-    const provider = this.settings.provider ?? this.config.defaultSettings.provider;
-    const reasoningEffort =
-      this.settings.reasoningEffort ?? this.config.defaultSettings.reasoningEffort;
-    const workingDirectory =
-      this.settings.workingDirectory ??
-      this.config.defaultSettings.workingDirectory;
-    const systemMessage = toSystemMessageConfig(
-      joinNonEmpty([
-        this.config.defaultSettings.systemMessage,
-        this.settings.systemMessage,
-        promptSystemMessage,
-      ]),
-    );
+		const clientName =
+			this.settings.clientName ?? this.config.defaultSettings.clientName;
+		const provider =
+			this.settings.provider ?? this.config.defaultSettings.provider;
+		const reasoningEffort =
+			this.settings.reasoningEffort ??
+			this.config.defaultSettings.reasoningEffort;
+		const workingDirectory =
+			this.settings.workingDirectory ??
+			this.config.defaultSettings.workingDirectory;
+		const systemMessage = toSystemMessageConfig(
+			joinNonEmpty([
+				this.config.defaultSettings.systemMessage,
+				this.settings.systemMessage,
+				promptSystemMessage,
+			]),
+		);
 
-    if (clientName != null) {
-      sessionConfig.clientName = clientName;
-    }
+		if (clientName != null) {
+			sessionConfig.clientName = clientName;
+		}
 
-    if (provider != null) {
-      sessionConfig.provider = provider;
-    }
+		if (provider != null) {
+			sessionConfig.provider = provider;
+		}
 
-    if (reasoningEffort != null) {
-      sessionConfig.reasoningEffort = reasoningEffort;
-    }
+		if (reasoningEffort != null) {
+			sessionConfig.reasoningEffort = reasoningEffort;
+		}
 
-    if (workingDirectory != null) {
-      sessionConfig.workingDirectory = workingDirectory;
-    }
+		if (workingDirectory != null) {
+			sessionConfig.workingDirectory = workingDirectory;
+		}
 
-    if (systemMessage != null) {
-      sessionConfig.systemMessage = systemMessage;
-    }
+		if (systemMessage != null) {
+			sessionConfig.systemMessage = systemMessage;
+		}
 
-    return sessionConfig;
-  }
+		return sessionConfig;
+	}
 }
 
 function toGeneratedContent(
-  message: AssistantMessageEvent,
+	message: AssistantMessageEvent,
 ): LanguageModelV3Content[] {
-  const content: LanguageModelV3Content[] = [];
+	const content: LanguageModelV3Content[] = [];
 
-  if (message.data.reasoningText != null && message.data.reasoningText.length > 0) {
-    content.push({
-      type: 'reasoning',
-      text: message.data.reasoningText,
-    });
-  }
+	if (
+		message.data.reasoningText != null &&
+		message.data.reasoningText.length > 0
+	) {
+		content.push({
+			text: message.data.reasoningText,
+			type: "reasoning",
+		});
+	}
 
-  if (message.data.content != null && message.data.content.length > 0) {
-    content.push({
-      type: 'text',
-      text: message.data.content,
-    });
-  }
+	if (message.data.content != null && message.data.content.length > 0) {
+		content.push({
+			text: message.data.content,
+			type: "text",
+		});
+	}
 
-  return content;
+	return content;
 }
 
 function toUsage(
-  usageEvent:
-    | Extract<SessionEvent, { type: 'assistant.usage' }>
-    | undefined,
-  message: AssistantMessageEvent | undefined,
+	usageEvent: Extract<SessionEvent, { type: "assistant.usage" }> | undefined,
+	message: AssistantMessageEvent | undefined,
 ): LanguageModelV3Usage {
-  const inputTotal = usageEvent?.data.inputTokens;
-  const cacheRead = usageEvent?.data.cacheReadTokens;
-  const cacheWrite = usageEvent?.data.cacheWriteTokens;
-  const outputTotal = usageEvent?.data.outputTokens ?? message?.data.outputTokens;
+	const inputTotal = usageEvent?.data.inputTokens;
+	const cacheRead = usageEvent?.data.cacheReadTokens;
+	const cacheWrite = usageEvent?.data.cacheWriteTokens;
+	const outputTotal =
+		usageEvent?.data.outputTokens ?? message?.data.outputTokens;
 
-  return {
-    inputTokens: {
-      total: inputTotal,
-      noCache:
-        inputTotal != null ? Math.max(inputTotal - (cacheRead ?? 0), 0) : undefined,
-      cacheRead,
-      cacheWrite,
-    },
-    outputTokens: {
-      total: outputTotal,
-      text: outputTotal,
-      reasoning: undefined,
-    },
-    raw:
-      usageEvent == null
-        ? undefined
-        : removeUndefinedEntries({
-            model: usageEvent.data.model,
-            inputTokens: usageEvent.data.inputTokens,
-            outputTokens: usageEvent.data.outputTokens,
-            cacheReadTokens: usageEvent.data.cacheReadTokens,
-            cacheWriteTokens: usageEvent.data.cacheWriteTokens,
-            cost: usageEvent.data.cost,
-            duration: usageEvent.data.duration,
-            apiCallId: usageEvent.data.apiCallId,
-            providerCallId: usageEvent.data.providerCallId,
-            quotaSnapshots: usageEvent.data.quotaSnapshots,
-            copilotUsage: usageEvent.data.copilotUsage,
-            reasoningEffort: usageEvent.data.reasoningEffort,
-          }),
-  };
+	return {
+		inputTokens: {
+			cacheRead,
+			cacheWrite,
+			noCache:
+				inputTotal != null
+					? Math.max(inputTotal - (cacheRead ?? 0), 0)
+					: undefined,
+			total: inputTotal,
+		},
+		outputTokens: {
+			reasoning: undefined,
+			text: outputTotal,
+			total: outputTotal,
+		},
+		raw:
+			usageEvent == null
+				? undefined
+				: removeUndefinedEntries({
+						apiCallId: usageEvent.data.apiCallId,
+						cacheReadTokens: usageEvent.data.cacheReadTokens,
+						cacheWriteTokens: usageEvent.data.cacheWriteTokens,
+						copilotUsage: usageEvent.data.copilotUsage,
+						cost: usageEvent.data.cost,
+						duration: usageEvent.data.duration,
+						inputTokens: usageEvent.data.inputTokens,
+						model: usageEvent.data.model,
+						outputTokens: usageEvent.data.outputTokens,
+						providerCallId: usageEvent.data.providerCallId,
+						quotaSnapshots: usageEvent.data.quotaSnapshots,
+						reasoningEffort: usageEvent.data.reasoningEffort,
+					}),
+	};
 }
 
 function toFinishReason(
-  message: AssistantMessageEvent | undefined,
-  errorEvent: Extract<SessionEvent, { type: 'session.error' }> | undefined,
+	message: AssistantMessageEvent | undefined,
+	errorEvent: Extract<SessionEvent, { type: "session.error" }> | undefined,
 ): LanguageModelV3FinishReason {
-  if (message?.data.toolRequests?.length) {
-    return {
-      unified: 'tool-calls',
-      raw: 'tool-calls',
-    };
-  }
+	if (message?.data.toolRequests?.length) {
+		return {
+			raw: "tool-calls",
+			unified: "tool-calls",
+		};
+	}
 
-  if (errorEvent != null && message == null) {
-    return {
-      unified: 'error',
-      raw: errorEvent.data.errorType,
-    };
-  }
+	if (errorEvent != null && message == null) {
+		return {
+			raw: errorEvent.data.errorType,
+			unified: "error",
+		};
+	}
 
-  return {
-    unified: 'stop',
-    raw: 'stop',
-  };
+	return {
+		raw: "stop",
+		unified: "stop",
+	};
 }
 
 function toResponseMetadata(
-  message: AssistantMessageEvent | undefined,
-  usageEvent:
-    | Extract<SessionEvent, { type: 'assistant.usage' }>
-    | undefined,
+	message: AssistantMessageEvent | undefined,
+	usageEvent: Extract<SessionEvent, { type: "assistant.usage" }> | undefined,
 ): LanguageModelV3ResponseMetadata {
-  return removeUndefinedEntries({
-    id:
-      usageEvent?.data.apiCallId ??
-      message?.data.interactionId ??
-      message?.data.messageId,
-    timestamp: message != null ? new Date(message.timestamp) : undefined,
-    modelId: usageEvent?.data.model,
-  });
+	return removeUndefinedEntries({
+		id:
+			usageEvent?.data.apiCallId ??
+			message?.data.interactionId ??
+			message?.data.messageId,
+		modelId: usageEvent?.data.model,
+		timestamp: message != null ? new Date(message.timestamp) : undefined,
+	});
 }
 
 function toSystemMessageConfig(content: string | undefined) {
-  return content == null
-    ? undefined
-    : {
-        content,
-      };
+	return content == null
+		? undefined
+		: {
+				content,
+			};
 }
 
 function bindAbortSignal(
-  signal: AbortSignal | undefined,
-  session: CopilotSession,
+	signal: AbortSignal | undefined,
+	session: CopilotSession,
 ): () => void {
-  if (signal == null) {
-    return () => {};
-  }
+	if (signal == null) {
+		return () => {};
+	}
 
-  const onAbort = () => {
-    void session.abort();
-  };
+	const onAbort = () => {
+		void session.abort();
+	};
 
-  signal.addEventListener('abort', onAbort);
+	signal.addEventListener("abort", onAbort);
 
-  return () => {
-    signal.removeEventListener('abort', onAbort);
-  };
+	return () => {
+		signal.removeEventListener("abort", onAbort);
+	};
 }
 
 async function cleanupSession(
-  client: CopilotClient,
-  session: CopilotSession | undefined,
+	client: CopilotClient,
+	session: CopilotSession | undefined,
 ): Promise<void> {
-  if (session != null) {
-    try {
-      await session.disconnect();
-    } catch {
-      // Best effort cleanup only.
-    }
+	if (session != null) {
+		try {
+			await session.disconnect();
+		} catch {
+			// Best effort cleanup only.
+		}
 
-    try {
-      await client.deleteSession(session.sessionId);
-    } catch {
-      // Session data cleanup is optional.
-    }
-  }
+		try {
+			await client.deleteSession(session.sessionId);
+		} catch {
+			// Session data cleanup is optional.
+		}
+	}
 
-  try {
-    await client.stop();
-  } catch {
-    // Best effort cleanup only.
-  }
+	try {
+		await client.stop();
+	} catch {
+		// Best effort cleanup only.
+	}
 }
 
 function createCopilotError({
-  requestBody,
-  errorEvent,
-  message,
-  cause,
+	requestBody,
+	errorEvent,
+	message,
+	cause,
 }: {
-  requestBody: unknown;
-  errorEvent?: Extract<SessionEvent, { type: 'session.error' }>;
-  message?: string;
-  cause?: unknown;
+	requestBody: unknown;
+	errorEvent?: Extract<SessionEvent, { type: "session.error" }>;
+	message?: string;
+	cause?: unknown;
 }) {
-  return new APICallError({
-    message: message ?? errorEvent?.data.message ?? 'Copilot request failed.',
-    url: 'copilot://session',
-    requestBodyValues: requestBody,
-    statusCode: errorEvent?.data.statusCode,
-    responseBody: errorEvent?.data.message,
-    isRetryable:
-      errorEvent?.data.statusCode != null
-        ? errorEvent.data.statusCode === 429 ||
-          errorEvent.data.statusCode >= 500
-        : false,
-    data:
-      errorEvent == null
-        ? undefined
-        : removeUndefinedEntries({
-            errorType: errorEvent.data.errorType,
-            providerCallId: errorEvent.data.providerCallId,
-            url: errorEvent.data.url,
-          }),
-    cause,
-  });
+	return new APICallError({
+		cause,
+		data:
+			errorEvent == null
+				? undefined
+				: removeUndefinedEntries({
+						errorType: errorEvent.data.errorType,
+						providerCallId: errorEvent.data.providerCallId,
+						url: errorEvent.data.url,
+					}),
+		isRetryable:
+			errorEvent?.data.statusCode != null
+				? errorEvent.data.statusCode === 429 ||
+					errorEvent.data.statusCode >= 500
+				: false,
+		message: message ?? errorEvent?.data.message ?? "Copilot request failed.",
+		requestBodyValues: requestBody,
+		responseBody: errorEvent?.data.message,
+		statusCode: errorEvent?.data.statusCode,
+		url: "copilot://session",
+	});
 }
 
 function throwIfAborted(signal: AbortSignal | undefined) {
-  if (signal?.aborted) {
-    throw new DOMException('The operation was aborted.', 'AbortError');
-  }
+	if (signal?.aborted) {
+		throw new DOMException("The operation was aborted.", "AbortError");
+	}
 }
 
 function joinNonEmpty(values: Array<string | undefined>): string | undefined {
-  const parts = values
-    .map(value => value?.trim())
-    .filter((value): value is string => value != null && value.length > 0);
+	const parts = values
+		.map((value) => value?.trim())
+		.filter((value): value is string => value != null && value.length > 0);
 
-  return parts.length > 0 ? parts.join('\n\n') : undefined;
+	return parts.length > 0 ? parts.join("\n\n") : undefined;
 }
